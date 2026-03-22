@@ -16,31 +16,36 @@ AI coding tools start fresh every session — they don't remember your team's ru
 | Wrong patterns | AI uses REST when project uses GraphQL | Output thrown away |
 | No automated review | AI code merged without checks | Bugs reach production |
 | Wasted tokens | All rules loaded every time | ~2,000 tokens wasted per session |
-| Manual setup | 16+ config files maintained by hand | Time spent on rules, not features |
+| Manual setup | 17+ config files maintained by hand | Time spent on rules, not features |
 | Slow onboarding | Generic "install Node.js" guides | Hours lost on project setup |
 
 ---
 
 ## The Solution
 
-Run one prompt → it reads your code → generates 16+ governance files automatically.
-
-**How it works:**
-
-```
-1. You copy one prompt file into your repo
-2. Run it in Copilot Chat
-3. It scans your real code (source files, package.json, tests, config)
-4. Generates 16+ files: agents, skills, prompts, instructions, architecture doc
-5. Every developer on the team now gets consistent AI behaviour
-```
+Run one prompt → it reads your code → generates 17 governance files automatically.
 
 | | Detail |
 |---|---|
 | **Cost** | Zero — one Markdown file, no infrastructure |
 | **Risk** | Zero — source code is never touched, only creates new files |
 | **Undo** | Delete the generated folders and you're back to normal |
-| **vs. Copilot /init** | /init makes 1 file; this makes 16+ with multi-agent orchestration |
+| **vs. Copilot /init** | /init makes 1 file; this makes 16 with multi-agent orchestration |
+
+---
+
+## File Types at a Glance — Why Each Exists
+
+| File / Location | Loaded by Copilot | When it activates | What it's for | Why not just use one file? |
+|---|---|---|---|---|
+| `.github/copilot-instructions.md` | ✅ Automatically | **Every single session** | Thin project overview — stack name, key conventions, agent index, prompts list (~300 tokens) | Auto-loaded always, so must be tiny. Putting everything here wastes tokens every session. |
+| `.github/instructions/*.instructions.md` | ✅ Automatically | **When editing a matching file** (via `applyTo` glob) | Compact rules for a specific file type — e.g., test rules load only when editing `*.spec.ts` | Keeps irrelevant rules out of context. Test conventions don't need to load when editing a service file. |
+| `.github/skills/*/SKILL.md` | 🔁 On demand | **When a task explicitly needs them** | Deep knowledge packs — full coding conventions, test patterns, PR checklist with real code examples | Too long to auto-load. Loaded on demand so they don't inflate every session's token cost. |
+| `.github/prompts/*.prompt.md` | 🔁 On demand | **When developer types the slash command** | Slash commands that trigger agent pipelines — `/implement-feature`, `/refactor-code`, `/setup` | Workflows, not rules. Each prompt wires up the right agents for a specific type of task. |
+| `.github/agents/*.agent.md` | 🔁 On demand | **When Orchestrator delegates work** | Specialist AI roles with locked tool permissions — Coder writes code, Reviewer only reads, etc. | Splitting roles enforces least privilege and lets each agent focus on one job without overstepping. |
+| `docs/architecture.md` | 🔁 On demand | **When agents need project context** | Single source of truth — tech stack, module boundaries, coding patterns, AI usage policy, AI-BOM, governance inventory | All other files reference this instead of duplicating content. Keeps everything consistent in one place. |
+
+> **Rule of thumb:** `copilot-instructions.md` is the always-on summary. Instructions files are auto-injected per file type. Skills are deep docs loaded when needed. Prompts are commands. Agents are workers. `architecture.md` is the canonical reference everything else points to.
 
 ---
 
@@ -86,7 +91,35 @@ Run one prompt → it reads your code → generates 16+ governance files automat
 | 13 | `coding-conventions/SKILL.md` | DI patterns, API rules, data access conventions |
 | 14 | `testing/SKILL.md` | Mock patterns, test structure, coverage rules |
 | 15 | `pr-review/SKILL.md` | Review checklist, security rules |
-| 16 | `architecture.md` | Single source of truth — modules, patterns, dependencies, AI usage policy, governance file inventory |
+| 16 | `architecture.md` | Single source of truth — modules, patterns, dependencies, AI usage policy, AI-BOM, governance file inventory, regulatory compliance hooks |
+
+---
+
+## Team Quick Reference
+
+> Paste this into your team wiki or share during onboarding.
+
+### What each file type does
+
+| File location | Loaded when | Purpose |
+|---|---|---|
+| `.github/copilot-instructions.md` | Every session — automatic | Project-wide rules and agent index |
+| `.github/instructions/*.instructions.md` | Editing matching files — automatic | Language/test-file-specific rules |
+| `.github/skills/*/SKILL.md` | On demand when task matches | Deep patterns: coding conventions, test patterns, review checklist |
+| `.github/prompts/implement-feature.prompt.md` | `/implement-feature` command | Full feature pipeline via Orchestrator |
+| `.github/prompts/refactor-code.prompt.md` | `/refactor-code` command | Refactor pipeline via Orchestrator |
+| `.github/prompts/review-pull-request.prompt.md` | `/review-pull-request` command | Read-only PR review via Reviewer |
+| `.github/prompts/setup.prompt.md` | `/setup` command | Exact setup runbook for this repo |
+| `.github/agents/*.agent.md` | When Orchestrator delegates | Specialist roles with locked permissions |
+
+### How to extend
+
+| Goal | How |
+|---|---|
+| Add a coding rule | Edit `.github/skills/coding-conventions/SKILL.md` |
+| Add a test rule | Edit `.github/skills/testing/SKILL.md` |
+| Add a new agent | Create `.github/agents/<name>.agent.md`, add the name to the Orchestrator's `agents` list |
+| Refresh after adding a module | Re-run the bootstrap in a new Copilot Chat session |
 
 ---
 
@@ -177,29 +210,6 @@ Instead of one AI doing everything, work is split across **5 specialist agents**
 
 ---
 
-## How It Flows
-
-When a developer types `/implement-feature Add pagination to items`, this happens:
-
-| Step | Who | What | Can be skipped? |
-|---|---|---|---|
-| 1 | **Orchestrator** | Reads the request, checks architecture, counts files | No |
-| 2 | **Planner** | Breaks work into phases (e.g., Phase 1: schema, Phase 2: API, Phase 3: tests) | Yes — if ≤ 2 files |
-| 3 | **Coder** | Writes code following your repo's patterns | Yes — if docs-only or config-only change |
-| 4 | **Tester** | Writes tests using your test framework | Yes — if docs-only or config-only change |
-| 5 | **Reviewer** | Validates architecture + security (read-only) | **Never** skipped for code |
-
-**Smart skipping examples:**
-
-| Request | Agents used | Why |
-|---|---|---|
-| "Fix typo in README" | Orchestrator only (1 agent) | Docs-only, 1 file |
-| "Update cron schedule" | Orchestrator only (1 agent) | Config-only change, Coder+Tester skipped |
-| "Rename a variable" | Orchestrator + Coder + Reviewer (3 agents) | Code change, ≤ 2 files, skip Planner |
-| "Add pagination feature" | All 5 agents | > 2 files, full pipeline |
-
----
-
 ## Folder Structure — Before and After
 
 **Before** (your existing repo — nothing changes here):
@@ -230,10 +240,8 @@ your-repo/
     ├── copilot-instructions.md   ← project overview (loaded every session)
     ├── agents/                   ← 5 specialist agents
     ├── instructions/             ← 2 scoped rule files
-    ├── prompts/                  ← 4 slash commands
+    ├── prompts/                  ← 4 slash commands (/implement-feature, /refactor-code, /review-pull-request, /setup)
     └── skills/                   ← 3 knowledge packs
-
-> `.gitattributes` may also be created or appended with `diff=markdown` entries for governance files.
 ```
 
 ---
@@ -269,15 +277,14 @@ Key: Reviewer can **never** edit code. Coder can **never** delegate. Orchestrato
 
 ## Getting Started
 
-| Step | What to do |
-|---|---|
-| 1 | Copy `bootstrap-copilot-instructions.prompt.md` into your repo at `docs/copilot/` |
-| 2 | Open Copilot Chat (Agent mode) → type `Run docs/copilot/bootstrap-copilot-instructions.prompt.md` |
-| 3 | Review the 16+ generated files, commit them |
+**Prerequisites**
+- VS Code **1.100+**
+- **GitHub Copilot** extension installed and signed in
+- Agent mode available (check the mode selector at the top of Copilot Chat)
 
-**Requirements:** VS Code + GitHub Copilot with Agent mode enabled.
+**Why Claude Sonnet 4.6?** It has a 200k+ context window and the best structured-output reliability for the 14-step pipeline. Other 200k+ models may work but are not validated for first run.
 
-**Re-running:** Safe at any time. Auto-generated files get refreshed. Manually edited files are preserved. A changelog row is appended to `architecture.md` on each re-run for traceability.
+**Re-running:** Safe at any time — re-run after adding a new module, changing the API protocol, or upgrading a major dependency. Files you manually edit (no provenance comment) are never overwritten. A changelog row is appended to `architecture.md` on each re-run for traceability.
 
 ---
 
@@ -288,7 +295,7 @@ Key: Reviewer can **never** edit code. Coder can **never** delegate. Orchestrato
 | **Deploy** | One file committed to the repo |
 | **Infrastructure** | None |
 | **Effort** | One developer, one run |
-| **Rollback** | Delete generated folders (file list is in the governance inventory section of `architecture.md`) |
+| **Rollback** | Delete generated folders (file list is in the governance inventory section of `architecture.md`). Only files with provenance comments are removed — manually maintained files are preserved. |
 | **Day-to-day** | Nothing — governance is stable |
 | **Convention change** | Edit the relevant skill file |
 | **New module / migration** | Re-run the bootstrap (in a new Copilot Chat session) |
@@ -320,6 +327,16 @@ rm -rf .github/agents/ .github/prompts/ .github/skills/ .github/instructions/
 | `/setup` tries to edit files | Verify `tools: [codebase]` is the only tools entry and `agent` key is absent from setup.prompt.md |
 | Generated files not in git | Check `.gitignore` doesn't exclude `.github/` |
 | Re-run overwrites manual edits | Manually edited files (no provenance comment) are preserved. If overwritten, the file had a provenance comment |
+| Rate limit errors on community fetch | GitHub allows 60 unauthenticated API calls/hour. The prompt caps fetch calls at 10 and falls back to offline mode on 403 |
+| AI-BOM missing model names | Models are resolved at generation time from Step 7.0 preference lists and written into the AI-BOM table in `architecture.md` |
+
+---
+
+## Version History
+
+| Version | Date | Changes |
+|---|---|---|
+| **v1** | 2026-03-16 | Initial release — 14-step pipeline, 3-phase architecture (A/B/C), 16 generated files, 5-agent orchestration, deterministic model selection via preference lists, write-time token budget enforcement, structured skill/policy templates, ISO 42001 risk classification, AI-BOM with model identifiers, `--dry-run` requirement for generators, orphan detection on re-run, Unicode-normalized injection guard, AI usage policy with incident response and data classification, full OWASP LLM Top 10 coverage with per-item mitigations, regulatory compliance hooks (EU AI Act, NIST AI RMF, SOC 2), developer feedback mechanism, deterministic module definition for file sampling, indirect execution guard for Coder agent, run-state ledger for provenance tracking, API rate-limit awareness, Phase A checkpoint after Step 6. Validated for Claude Sonnet 4.6 in Agent mode. |
 
 ---
 
